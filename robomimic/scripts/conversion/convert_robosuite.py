@@ -23,6 +23,7 @@ import argparse
 import robomimic.envs.env_base as EB
 from robomimic.scripts.split_train_val import split_train_val_from_hdf5
 from robomimic.scripts.conversion.robosuite_add_absolute_actions import add_absolute_actions_to_dataset
+from robomimic.scripts.conversion.robosuite_add_delta_actions import add_delta_actions_to_dataset
 from robomimic.scripts.extract_action_dict import extract_action_dict
 from robomimic.scripts.filter_dataset_size import filter_dataset_size
 
@@ -46,12 +47,20 @@ if __name__ == "__main__":
         help="Set this flag to add absolute actions to the dataset",
     )
     parser.add_argument(
+        "--add_delta_actions",
+        action="store_true",
+        help="Set this flag to add delta actions to an absolute-action dataset",
+    )
+    parser.add_argument(
         "--num_workers",
         type=int,
         default=10,
-        help="Num workers to use for parallel processing when adding absolute actions",
+        help="Num workers to use for parallel processing when converting actions",
     )
     args = parser.parse_args()
+
+    if args.add_absolute_actions and args.add_delta_actions:
+        parser.error("--add_absolute_actions and --add_delta_actions are mutually exclusive")
 
     f = h5py.File(args.dataset, "a") # edit mode
 
@@ -106,10 +115,19 @@ if __name__ == "__main__":
             num_workers=args.num_workers,
         )
 
+    # add delta actions to an absolute-action dataset
+    if args.add_delta_actions:
+        add_delta_actions_to_dataset(
+            dataset=args.dataset,
+            num_workers=args.num_workers,
+        )
+
     # extract corresponding action keys into action_dict
     extract_action_dict(
-        dataset=args.dataset, 
-        add_absolute_actions=args.add_absolute_actions
+        dataset=args.dataset,
+        add_absolute_actions=args.add_absolute_actions,
+        add_delta_actions=args.add_delta_actions,
+        actions_are_absolute=args.add_delta_actions,
     )
 
     # create filter keys according to number of demos
