@@ -1,0 +1,34 @@
+name: Validate robomimic absolute-to-delta actions
+
+on:
+  push:
+    branches:
+      - "feature/absolute-to-delta-actions-270"
+    paths:
+      - "robomimic/scripts/conversion/robosuite_add_delta_actions.py"
+      - "robomimic/scripts/conversion/convert_robosuite.py"
+      - "robomimic/scripts/extract_action_dict.py"
+      - "tests/test_robosuite_action_conversion.py"
+      - ".github/workflows/validate-absolute-to-delta-actions.yml"
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install focused dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install robosuite scipy pytest
+      - name: Compile changed files
+        run: |
+          python -m py_compile robomimic/scripts/conversion/robosuite_add_delta_actions.py
+          python -m py_compile robomimic/scripts/conversion/convert_robosuite.py
+          python -m py_compile robomimic/scripts/extract_action_dict.py
+      - name: Run focused semantic regression
+        run: python -m pytest -q tests/test_robosuite_action_conversion.py
