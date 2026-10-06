@@ -137,9 +137,19 @@ class RobomimicDeltaActionConverter:
                 assert controller.use_delta
             else:
                 assert controller.input_type == "delta"
+            if not getattr(controller, "use_ori", True):
+                raise NotImplementedError(
+                    "absolute->delta conversion currently supports 6D OSC pose control only"
+                )
             if getattr(controller, "impedance_mode", "fixed") != "fixed":
                 raise NotImplementedError(
                     "absolute->delta conversion currently supports fixed-impedance OSC only"
+                )
+            if getattr(controller, "position_limits", None) is not None or getattr(
+                controller, "orientation_limits", None
+            ) is not None:
+                raise NotImplementedError(
+                    "absolute->delta conversion does not yet invert OSC position/orientation limits"
                 )
             if getattr(controller, "_goal_update_mode", "achieved") != "achieved":
                 raise NotImplementedError(
