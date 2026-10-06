@@ -1,7 +1,9 @@
+import h5py
 import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
+from robomimic.scripts.extract_action_dict import extract_action_dict
 from robomimic.scripts.conversion.robosuite_add_delta_actions import (
     _absolute_pose_to_delta,
     _controller_achieved_pose,
@@ -132,3 +134,40 @@ def test_legacy_robosuite_world_frame_pose_extraction():
     position, orientation = _controller_achieved_pose(controller)
     np.testing.assert_allclose(position, controller.ee_pos)
     np.testing.assert_allclose(orientation, controller.ee_ori_mat)
+
+
+
+def test_action_dict_labels_absolute_input_and_generated_delta(tmp_path):
+    dataset = tmp_path / "actions.hdf5"
+    absolute = np.array(
+        [
+            [0.2, 0.3, 0.4, 0.0, 0.0, 0.0, -1.0],
+            [0.4, 0.5, 0.6, 0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=np.float32,
+    )
+    delta = np.array(
+        [
+            [0.1, 0.0, -0.1, 0.0, 0.0, 0.0, -1.0],
+            [0.2, -0.2, 0.0, 0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=np.float32,
+    )
+
+    with h5py.File(dataset, "w") as f_out:
+        demo = f_out.create_group("data").create_group("demo_0")
+        demo.create_dataset("actions", data=absolute)
+        demo.create_dataset("actions_delta", data=delta)
+
+    extract_action_dict(
+        str(dataset),
+        add_absolute_actions=False,
+        add_delta_actions=True,
+        actions_are_absolute=True,
+    )
+
+    with h5py.File(dataset, "r") as f_in:
+        action_dict = f_in["data/demo_0/action_dict"]
+        np.testing.assert_allclose(action_dict["abs_pos"][:], absolute[:, :3])
+        np.testing.assert_allclose(action_dict["rel_pos"][:], delta[:, :3])
+        np.testing.assert_allclose(action_dict["gripper"][:], delta[:, 6:7])
