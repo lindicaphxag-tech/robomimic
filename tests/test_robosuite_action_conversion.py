@@ -91,7 +91,9 @@ def test_desired_goal_mode_is_refused_without_controller_memory():
 
 
 class BaseFrameController(DummyController):
-    input_ref_frame = "base"
+    def __init__(self, position, orientation):
+        super().__init__(position, orientation)
+        self.input_ref_frame = "base"
 
     def world_to_origin_frame(self, position):
         return np.asarray(position) - np.array([1.0, 2.0, 3.0])
