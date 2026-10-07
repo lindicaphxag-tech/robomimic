@@ -22,7 +22,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1 libglx-mesa0
           python -m pip install --upgrade pip
-          python -m pip install "robosuite==1.5.2" "mujoco==3.2.6" numpy scipy pytest
+          python -m pip install "robosuite==1.5.2" "mujoco==3.3.0" numpy scipy pytest
           python -c "import mujoco, robosuite; print('MUJOCO', mujoco.__version__, 'ROBOSUITE', robosuite.__version__)"
       - name: Verify real OSC goal and reverse conversion
         run: python -m pytest -q -s tests/test_robosuite_real_osc_inverse.py
