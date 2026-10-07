@@ -87,6 +87,19 @@ def test_two_real_osc_controllers_track_same_physics_under_compiled_actions():
                 abs_env.sim.get_state().flatten()
             ))),
         )
+        # Controller-state handshake: the simulator snapshot captures qpos,
+        # qvel and time, but does not carry the OSC nullspace posture target.
+        # Its run_controller() adds a nullspace torque around initial_joint.
+        # A controller swap must migrate that target as well as physical state.
+        abs_osc.update_initial_joints(np.asarray(delta_osc.initial_joint).copy())
+        print(
+            "HANDSHAKE_INITIAL_JOINT_MAXDIFF",
+            float(np.max(np.abs(
+                np.asarray(delta_osc.initial_joint) -
+                np.asarray(abs_osc.initial_joint)
+            ))),
+        )
+
         rng = np.random.default_rng(270)
         qpos_errors = []
         goal_errors = []
