@@ -14,8 +14,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install runtime dependencies
-        run: python -m pip install --upgrade pip numpy scipy robosuite
+      - name: Install robomimic-compatible robosuite runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "mujoco==3.2.3" numpy scipy
+          python -m pip install "git+https://github.com/ARISE-Initiative/robosuite.git@v1.5.1"
       - name: Check live OSC goal round-trip
         run: |
           python - <<'PY'
