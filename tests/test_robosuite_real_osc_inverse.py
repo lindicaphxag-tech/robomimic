@@ -4,8 +4,10 @@ CPU-only, no dataset download and no renderer. Exercises robosuite's own
 controller goal generator in addition to the pure SO(3)/scale equations.
 """
 import numpy as np
+import pytest
 from scipy.spatial.transform import Rotation
 
+pytest.importorskip("robosuite")
 import robosuite as suite
 from robosuite.controllers.composite.composite_controller_factory import load_composite_controller_config
 from robomimic.scripts.conversion.robosuite_action_conversion import (
