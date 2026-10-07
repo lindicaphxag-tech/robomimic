@@ -67,6 +67,26 @@ def test_two_real_osc_controllers_track_same_physics_under_compiled_actions():
         assert delta_osc.input_type == "delta"
         assert abs_osc.input_type == "absolute"
 
+        # Diagnose controller state that is NOT encoded in MuJoCo's flattened
+        # physics state. Copying qpos/qvel alone can leave controller-owned
+        # nullspace targets or reference memory inconsistent.
+        for attr in ("initial_joint", "kp", "kd", "origin_pos", "origin_ori"):
+            a = getattr(delta_osc, attr, None)
+            b = getattr(abs_osc, attr, None)
+            if a is not None and b is not None:
+                print(
+                    "CONTROLLER_STATE", attr,
+                    "maxdiff", float(np.max(np.abs(np.asarray(a) - np.asarray(b)))),
+                    "source", np.asarray(a).tolist(),
+                    "target", np.asarray(b).tolist(),
+                )
+        print(
+            "INITIAL_PHYSICS",
+            float(np.max(np.abs(
+                delta_env.sim.get_state().flatten() -
+                abs_env.sim.get_state().flatten()
+            ))),
+        )
         rng = np.random.default_rng(270)
         qpos_errors = []
         goal_errors = []
@@ -100,6 +120,16 @@ def test_two_real_osc_controllers_track_same_physics_under_compiled_actions():
             source_q = np.asarray(delta_env.sim.data.qpos, dtype=float).copy()
             target_q = np.asarray(abs_env.sim.data.qpos, dtype=float).copy()
             qpos_errors.append(float(np.max(np.abs(source_q - target_q))))
+            if len(qpos_errors) == 1:
+                print(
+                    "FIRST_STEP",
+                    "source_qpos", source_q.tolist(),
+                    "target_qpos", target_q.tolist(),
+                    "ctrl_maxdiff", float(np.max(np.abs(
+                        np.asarray(delta_env.sim.data.ctrl) -
+                        np.asarray(abs_env.sim.data.ctrl)
+                    ))),
+                )
 
             p_error = float(np.linalg.norm(delta_osc.goal_pos - abs_osc.goal_pos))
             R_error = float(
