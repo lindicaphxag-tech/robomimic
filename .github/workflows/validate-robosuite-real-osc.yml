@@ -25,4 +25,4 @@ jobs:
           python -m pip install "robosuite==1.5.2" "mujoco==3.3.0" numpy scipy pytest
           python -c "import mujoco, robosuite; print('MUJOCO', mujoco.__version__, 'ROBOSUITE', robosuite.__version__)"
       - name: Verify real OSC goal and reverse conversion
-        run: python -m pytest -q -s tests/test_robosuite_real_osc_inverse.py
+        run: python -m pytest -q -s tests/test_robosuite_real_osc_inverse.py tests/test_robosuite_paired_closed_loop.py
