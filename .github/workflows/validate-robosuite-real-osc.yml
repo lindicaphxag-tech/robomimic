@@ -1,0 +1,27 @@
+name: Validate real robosuite OSC semantic inverse
+
+on:
+  push:
+    branches:
+      - validation/delta-actions-real-osc-20261008
+  workflow_dispatch:
+
+jobs:
+  real-osc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      MUJOCO_GL: osmesa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU simulation dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1 libglx-mesa0
+          python -m pip install --upgrade pip
+          python -m pip install "robosuite>=1.5,<1.6" numpy scipy pytest
+      - name: Verify real OSC goal and reverse conversion
+        run: python -m pytest -q -s tests/test_robosuite_real_osc_inverse.py
