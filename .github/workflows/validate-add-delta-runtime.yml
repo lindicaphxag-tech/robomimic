@@ -1,0 +1,113 @@
+name: Validate converter against robosuite runtime
+
+on:
+  push:
+    branches:
+      - "validation/add-delta-actions-converter"
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install runtime dependencies
+        run: python -m pip install --upgrade pip numpy scipy robosuite
+      - name: Check live OSC goal round-trip
+        run: |
+          python - <<'PY'
+          import numpy as np
+          import robosuite as suite
+          from scipy.spatial.transform import Rotation
+          from robosuite.controllers.composite.composite_controller_factory import (
+              refactor_composite_controller_config,
+          )
+          from robomimic.scripts.conversion.robosuite_action_conversion import (
+              compose_delta_with_pose,
+              inverse_scale_action,
+              physical_delta_from_absolute_pose,
+          )
+
+          arm = suite.load_part_controller_config(default_controller="OSC_POSE")
+          controller_configs = refactor_composite_controller_config(
+              arm, "Panda", ["right"]
+          )
+          env = suite.make(
+              env_name="Lift",
+              robots="Panda",
+              controller_configs=controller_configs,
+              has_renderer=False,
+              has_offscreen_renderer=False,
+              use_camera_obs=False,
+              ignore_done=True,
+              control_freq=20,
+          )
+
+          rng = np.random.default_rng(270)
+          max_goal_error = 0.0
+          max_action_error = 0.0
+
+          for _ in range(25):
+              env.reset()
+              controller = env.robots[0].part_controllers["right"]
+              assert controller.input_type == "delta"
+              controller.update(force=True)
+
+              if controller.input_ref_frame == "base":
+                  baseline_pos = controller.world_to_origin_frame(controller.ref_pos)
+                  baseline_ori = controller.goal_origin_to_eef_pose()[:3, :3]
+              else:
+                  baseline_pos = np.array(controller.ref_pos)
+                  baseline_ori = np.array(controller.ref_ori_mat)
+
+              native = rng.uniform(-0.6, 0.6, size=6)
+              physical = controller.scale_action(native.copy())
+              expected_abs = compose_delta_with_pose(
+                  baseline_pos, baseline_ori, physical
+              )
+
+              action = np.zeros(env.action_dim, dtype=np.float64)
+              action[:6] = native
+              env.step(action)
+
+              actual_abs = np.concatenate(
+                  [
+                      np.asarray(controller.goal_pos),
+                      Rotation.from_matrix(controller.goal_ori).as_rotvec(),
+                  ]
+              )
+
+              goal_pos_err = np.linalg.norm(actual_abs[:3] - expected_abs[:3])
+              R_actual = Rotation.from_rotvec(actual_abs[3:]).as_matrix()
+              R_expected = Rotation.from_rotvec(expected_abs[3:]).as_matrix()
+              goal_ori_err = np.linalg.norm(
+                  Rotation.from_matrix(R_actual @ R_expected.T).as_rotvec()
+              )
+              max_goal_error = max(max_goal_error, goal_pos_err, goal_ori_err)
+
+              recovered_physical = physical_delta_from_absolute_pose(
+                  actual_abs, baseline_pos, baseline_ori
+              )
+              recovered_native, mask = inverse_scale_action(
+                  recovered_physical,
+                  controller.input_min,
+                  controller.input_max,
+                  controller.output_min,
+                  controller.output_max,
+              )
+              assert np.all(mask)
+              max_action_error = max(
+                  max_action_error,
+                  float(np.max(np.abs(recovered_native - native))),
+              )
+
+          env.close()
+          print(f"robosuite={suite.__version__}")
+          print(f"max_goal_error={max_goal_error:.3e}")
+          print(f"max_action_error={max_action_error:.3e}")
+          assert max_goal_error < 1e-6
+          assert max_action_error < 1e-6
+          PY
