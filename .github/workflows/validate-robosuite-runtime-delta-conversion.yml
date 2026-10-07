@@ -1,0 +1,28 @@
+name: Validate robosuite 1.5.1 runtime inverse
+
+on:
+  push:
+    branches:
+      - "validation/absolute-to-delta-runtime-1.5.1"
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      MUJOCO_GL: disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install "robosuite==1.5.1" pytest
+      - name: Run pure semantic regression
+        run: python -m pytest -q tests/test_robosuite_action_conversion.py
+      - name: Run real OSC runtime round trip
+        run: python -m pytest -q tests/test_robosuite_runtime_action_conversion.py
