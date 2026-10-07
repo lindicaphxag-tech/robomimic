@@ -17,13 +17,18 @@ import os
 
 import robomimic.utils.torch_utils as TorchUtils
 
-def extract_action_dict(dataset, add_absolute_actions=True):
+def extract_action_dict(
+    dataset,
+    add_absolute_actions=True,
+    add_delta_actions=False,
+    actions_are_absolute=False,
+):
     f = h5py.File(os.path.expanduser(dataset), mode="r+")
 
     SPECS = [
         dict(
             key="actions",
-            is_absolute=False,
+            is_absolute=actions_are_absolute,
         )
     ]
     if add_absolute_actions:
@@ -31,6 +36,13 @@ def extract_action_dict(dataset, add_absolute_actions=True):
             dict(
                 key="actions_abs",
                 is_absolute=True,
+            )
+        )
+    if add_delta_actions:
+        SPECS.append(
+            dict(
+                key="actions_delta",
+                is_absolute=False,
             )
         )
 
