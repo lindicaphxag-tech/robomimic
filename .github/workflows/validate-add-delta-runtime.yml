@@ -19,12 +19,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install numpy scipy
           python -m pip install "git+https://github.com/ARISE-Initiative/robosuite.git@v1.5.1"
-          python -m pip install --force-reinstall "mujoco==3.2.3"
+          python -m pip install --force-reinstall "mujoco==3.2.3" "mink==0.0.5"
           python - <<'PY'
+          import importlib.metadata
           import mujoco, robosuite
           print("mujoco", mujoco.__version__)
+          print("mink", importlib.metadata.version("mink"))
           print("robosuite", robosuite.__version__)
           assert mujoco.__version__ == "3.2.3"
+          assert importlib.metadata.version("mink") == "0.0.5"
           assert robosuite.__version__ == "1.5.1"
           PY
       - name: Check live OSC goal round-trip
