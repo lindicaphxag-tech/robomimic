@@ -171,6 +171,11 @@ class RobomimicDeltaActionConverter:
                 env.reset_to({"states": states[i]})
 
             for idx, robot in enumerate(env.env.robots):
+                # reset_to restores MuJoCo state but does not update each arm
+                # controller's reference frame. In robosuite >=1.5 the OSC
+                # base-frame pose depends on this state-derived origin.
+                if not _legacy_robosuite():
+                    robot.composite_controller.update_state()
                 controller = _arm_controller(robot)
                 native_delta, physical_delta, representable_mask = (
                     _absolute_pose_to_delta(
