@@ -1,0 +1,32 @@
+name: Validate absolute to delta converter
+
+on:
+  push:
+    branches:
+      - "fix/add-delta-actions-converter"
+    paths:
+      - "robomimic/scripts/conversion/robosuite_action_conversion.py"
+      - "robomimic/scripts/conversion/robosuite_add_delta_actions.py"
+      - "robomimic/scripts/conversion/convert_robosuite.py"
+      - "robomimic/scripts/extract_action_dict.py"
+      - "tests/test_robosuite_action_conversion.py"
+      - ".github/workflows/validate-delta-action-converter.yml"
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install numpy scipy pytest
+      - name: Compile changed modules
+        run: |
+          python -m py_compile robomimic/scripts/conversion/robosuite_action_conversion.py
+          python -m py_compile robomimic/scripts/conversion/robosuite_add_delta_actions.py
+          python -m py_compile robomimic/scripts/conversion/convert_robosuite.py
+          python -m py_compile robomimic/scripts/extract_action_dict.py
+      - name: Run semantic regression
+        run: python -m pytest -q tests/test_robosuite_action_conversion.py
