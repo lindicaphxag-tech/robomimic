@@ -3,7 +3,7 @@ name: Validate real robosuite OSC semantic inverse
 on:
   push:
     branches:
-      - validation/cst-ur5e-iiwa-osc-20261009
+      - validation/cst-ur5e-iiwa-diagnostics-20261009
   workflow_dispatch:
 
 jobs:
