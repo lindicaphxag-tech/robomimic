@@ -81,7 +81,7 @@ def test_state_complete_osc_transport_across_robot_kinematics(task, seed, robot)
         arm_errors=[]
         scene_errors=[]
         goal_errors=[]
-        for _ in range(8):
+        for step_index in range(8):
             ra=a.robots[0]
             rb=b.robots[0]
             ra.composite_controller.update_state()
@@ -101,9 +101,23 @@ def test_state_complete_osc_transport_across_robot_kinematics(task, seed, robot)
             b.step(_full_action(b,abs_cmd))
             qa=np.asarray(a.sim.data.qpos,dtype=float)
             qb=np.asarray(b.sim.data.qpos,dtype=float)
-            scene_errors.append(float(np.max(np.abs(qa-qb))))
+            scene_delta=np.abs(qa-qb)
+            scene_errors.append(float(np.max(scene_delta)))
             arm_idx=np.asarray(ra._ref_joint_pos_indexes,dtype=int)
-            arm_errors.append(float(np.max(np.abs(qa[arm_idx]-qb[arm_idx]))))
+            arm_errors.append(float(np.max(scene_delta[arm_idx])))
+            worst_idx=int(np.argmax(scene_delta))
+            dp_now=float(np.max(np.abs(ca.goal_pos-cb.goal_pos)))
+            dr_now=float(np.max(np.abs(ca.goal_ori-cb.goal_ori)))
+            print("CST_MULTI_ROBOT_STEP",{
+                "robot":robot,"seed":seed,"step":step_index+1,
+                "qpos_worst_idx":worst_idx,
+                "qpos_worst_is_arm":worst_idx in set(arm_idx.tolist()),
+                "max_scene_qpos":scene_errors[-1],
+                "max_arm_qpos":arm_errors[-1],
+                "max_goal_pos":dp_now,"max_goal_matrix":dr_now,
+                "tcp_achieved_pos_max":float(np.max(np.abs(ca.ref_pos-cb.ref_pos))),
+                "tcp_achieved_ori_max":float(np.max(np.abs(ca.ref_ori_mat-cb.ref_ori_mat))),
+            })
             # Position and full matrix match: not raw axis-angle subtraction.
             dp=float(np.max(np.abs(ca.goal_pos-cb.goal_pos)))
             dr=float(np.max(np.abs(ca.goal_ori-cb.goal_ori)))
