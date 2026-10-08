@@ -28,14 +28,18 @@ def _delta_env():
     )
 
 
-@pytest.mark.parametrize("match_physics_model", [False, True])
-def test_identical_controller_instances_baseline_scene_drift(match_physics_model):
+@pytest.mark.parametrize("model_alignment", ["none", "arrays", "xml"])
+def test_identical_controller_instances_baseline_scene_drift(model_alignment):
     a = _delta_env()
     b = _delta_env()
     try:
         a.reset()
         b.reset()
-        if match_physics_model:
+        if model_alignment == "xml":
+            # Replicate the exact source model, not merely selected arrays:
+            # mj_saveLastXML followed by deterministic environment reload.
+            b.reset_from_xml_string(a.sim.model.get_xml())
+        elif model_alignment == "arrays":
             # MuJoCo flattened state excludes model geometry, masses and
             # contact parameters, which are independently randomized by Lift.
             for name in (
@@ -104,7 +108,7 @@ def test_identical_controller_instances_baseline_scene_drift(match_physics_model
         print(
             "IDENTICAL_CONTROLLER_NEG_CONTROL",
             "steps=8",
-            "match_physics_model", match_physics_model,
+            "model_alignment", model_alignment,
             "full_qpos_max", max(full_errors),
             "arm_qpos_max", max(arm_errors),
             "ctrl_max", max(ctrl_errors),
