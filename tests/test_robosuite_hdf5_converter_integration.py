@@ -61,6 +61,8 @@ def _load_real_converter_method_without_heavy_training_dependencies():
     # converter __init__, which this test intentionally bypasses. This test
     # checks the REAL convert_demo and convert_actions implementations, not
     # the robomimic metadata constructor or multiprocessing writer.
+    import robomimic.utils as robomimic_utils
+
     fake = {}
     for modname in (
         "robomimic.utils.env_utils",
@@ -80,8 +82,26 @@ def _load_real_converter_method_without_heavy_training_dependencies():
         "robomimic_delta_converter_hdf5_test", path
     )
     mod = importlib.util.module_from_spec(spec)
-    with patch.dict(sys.modules, fake):
-        spec.loader.exec_module(mod)
+    # Import statement semantics also resolve the child as a parent-package
+    # attribute, so stub both sys.modules and robomimic.utils attributes.
+    saved_attrs = {}
+    for fullname in (
+        "robomimic.utils.env_utils",
+        "robomimic.utils.file_utils",
+        "robomimic.utils.obs_utils",
+    ):
+        leaf = fullname.rsplit(".", 1)[-1]
+        saved_attrs[leaf] = getattr(robomimic_utils, leaf, None)
+        setattr(robomimic_utils, leaf, fake[fullname])
+    try:
+        with patch.dict(sys.modules, fake):
+            spec.loader.exec_module(mod)
+    finally:
+        for leaf, previous in saved_attrs.items():
+            if previous is None:
+                delattr(robomimic_utils, leaf)
+            else:
+                setattr(robomimic_utils, leaf, previous)
     return mod.RobomimicDeltaActionConverter
 
 
