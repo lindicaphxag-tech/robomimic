@@ -1,0 +1,146 @@
+"""Fail-closed executable controller-state migration for fixed-impedance OSC.
+
+Research prototype, not a replacement for robosuite's controller or a global
+robot safety guarantee. A caller must provide a common MJCF identity witness.
+The compiler deliberately rejects controller pairs whose hidden state is not
+covered by its narrow, tested handshake contract.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+import hashlib
+
+import numpy as np
+
+
+class MigrationOutcome(str, Enum):
+    APPLIED = "applied"
+    REFUSED = "refused"
+
+
+@dataclass(frozen=True)
+class OSCHandshakeCertificate:
+    outcome: MigrationOutcome
+    reason: str
+    common_model_sha256: str | None
+    source_reference_before: tuple[float, ...] | None
+    target_reference_before: tuple[float, ...] | None
+    target_reference_after: tuple[float, ...] | None
+    maximum_reference_residual: float | None
+
+
+def digest_mjcf(xml_bytes: str | bytes) -> str:
+    """Compute a provenance digest of the *same source MJCF bytes*.
+
+    This is a reproducibility fingerprint, not a proof that MuJoCo
+    world states or solver internal states are identical.
+    """
+    data = xml_bytes.encode("utf-8") if isinstance(xml_bytes, str) else bytes(xml_bytes)
+    return hashlib.sha256(data).hexdigest()
+
+
+def _reject(reason: str) -> OSCHandshakeCertificate:
+    return OSCHandshakeCertificate(
+        outcome=MigrationOutcome.REFUSED,
+        reason=reason,
+        common_model_sha256=None,
+        source_reference_before=None,
+        target_reference_before=None,
+        target_reference_after=None,
+        maximum_reference_residual=None,
+    )
+
+
+def _vector(value, name: str) -> np.ndarray:
+    array = np.asarray(value, dtype=float)
+    if array.ndim != 1 or array.size == 0 or not np.all(np.isfinite(array)):
+        raise ValueError(f"{name} must be a finite nonempty 1-D vector")
+    return array
+
+
+def compile_and_apply_osc_posture_handshake(
+    source,
+    target,
+    *,
+    source_mjcf_sha256: str,
+    target_mjcf_sha256: str,
+    tolerance: float = 1e-10,
+) -> OSCHandshakeCertificate:
+    """Apply narrow OSC nullspace-posture state transfer, or refuse.
+
+    Preconditions:
+    - identical *provenance* of source/target MJCF (caller-calculated);
+    - achieved-pose update mode, fixed impedance, no interpolation memory;
+    - matching OSC gain/damping and reference-frame semantics;
+    - same number of controller joints and matching joint state at the point
+      the handshake runs. This is a static point-in-time local obligation.
+
+    Not proved: complete physics-state identity, arbitrary controller
+    equivalence, arbitrary contact dynamics or future successful episodes.
+    """
+    if not (np.isfinite(tolerance) and tolerance >= 0):
+        return _reject("invalid numeric comparison tolerance")
+    if (
+        not isinstance(source_mjcf_sha256, str)
+        or not isinstance(target_mjcf_sha256, str)
+        or len(source_mjcf_sha256) != 64
+        or source_mjcf_sha256 != target_mjcf_sha256
+    ):
+        return _reject("source and target do not share a verified MJCF provenance digest")
+
+    required = (
+        "initial_joint", "kp", "kd", "joint_pos", "joint_vel",
+        "update_initial_joints", "input_type", "input_ref_frame",
+        "_goal_update_mode", "impedance_mode",
+    )
+    for role, controller in (("source", source), ("target", target)):
+        missing = [name for name in required if not hasattr(controller, name)]
+        if missing:
+            return _reject(f"{role} OSC controller missing required state: {missing}")
+
+    if (source.input_type, target.input_type) != ("delta", "absolute"):
+        return _reject("only delta OSC -> absolute OSC target handshake is supported")
+    if source._goal_update_mode != "achieved" or target._goal_update_mode != "achieved":
+        return _reject("desired-goal memory is unsupported by this handshake")
+    if source.impedance_mode != "fixed" or target.impedance_mode != "fixed":
+        return _reject("variable impedance adds uncontrolled controller state")
+    if source.input_ref_frame != target.input_ref_frame:
+        return _reject("source and target use different OSC reference frames")
+    for role, ctrl in (("source", source), ("target", target)):
+        if getattr(ctrl, "interpolator_pos", None) is not None or getattr(ctrl, "interpolator_ori", None) is not None:
+            return _reject(f"{role} contains unsupported interpolation memory")
+
+    try:
+        src_initial = _vector(source.initial_joint, "source.initial_joint")
+        dst_initial = _vector(target.initial_joint, "target.initial_joint")
+        if src_initial.shape != dst_initial.shape:
+            return _reject("source and target have different nullspace joint dimensions")
+
+        for name in ("kp", "kd", "joint_pos", "joint_vel"):
+            first = _vector(getattr(source, name), "source." + name)
+            second = _vector(getattr(target, name), "target." + name)
+            if first.shape != second.shape or not np.allclose(first, second, atol=tolerance, rtol=0):
+                return _reject(f"source/target {name} contract differs")
+
+        # The model and control gain checks are necessary but insufficient.
+        # Only synchronize a posture-reference vector. Never silently copy
+        # unknown private controller fields.
+        target.update_initial_joints(src_initial.copy())
+        transferred = _vector(target.initial_joint, "target.initial_joint")
+        error = float(np.max(np.abs(src_initial - transferred)))
+        if transferred.shape != src_initial.shape or error > tolerance:
+            # fail-closed: no APPLIED certificate for an incomplete transfer.
+            return _reject("target controller did not retain transferred posture reference")
+        return OSCHandshakeCertificate(
+            outcome=MigrationOutcome.APPLIED,
+            reason="OSC nullspace posture reference synchronized within declared scope",
+            common_model_sha256=source_mjcf_sha256,
+            source_reference_before=tuple(map(float, src_initial)),
+            target_reference_before=tuple(map(float, dst_initial)),
+            target_reference_after=tuple(map(float, transferred)),
+            maximum_reference_residual=error,
+        )
+    except (ValueError, AttributeError, TypeError) as exc:
+        return _reject(f"state extraction or application failed: {exc}")
