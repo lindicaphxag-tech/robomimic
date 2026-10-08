@@ -1,0 +1,29 @@
+name: Exact upstream-ready robomimic delta actions converter validation
+
+on:
+  push:
+    branches:
+      - validation/robomimic-converter-exact-20261009
+  workflow_dispatch:
+
+jobs:
+  exact-converter-blob:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      MUJOCO_GL: osmesa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install real robosuite and CPU MuJoCo
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1 libglx-mesa0
+          python -m pip install --upgrade pip
+          python -m pip install "robosuite==1.5.2" "mujoco==3.3.0" numpy scipy pytest h5py
+          python -c "import mujoco, robosuite; print('REAL_SIM',mujoco.__version__,robosuite.__version__)"
+      - name: Run ONLY the exact PR candidate's regression files
+        run: |
+          python -m pytest -q -s tests/test_robosuite_action_conversion.py tests/test_robosuite_real_osc_inverse.py
