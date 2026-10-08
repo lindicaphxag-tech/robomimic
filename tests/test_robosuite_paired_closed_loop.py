@@ -222,6 +222,30 @@ def test_closed_loop_controller_state_handshake_causal_torque_ablation():
 
         bad_error = float(np.max(np.abs(bad_torque - source_torque)))
         good_error = float(np.max(np.abs(good_torque - source_torque)))
+
+        # Frozen physical state + fixed controller goals: 32 independent
+        # state-only interventions probe how sensitive low-level torque is
+        # to memory mismatch. These are synthetic interventions, not task
+        # success rates or independently sampled robot trajectories.
+        rng = np.random.default_rng(429)
+        intervention_errors = []
+        for _ in range(32):
+            disturbance = rng.normal(0.0, 0.03, size=7)
+            tgt.initial_joint = np.asarray(src.initial_joint).copy() + disturbance
+            torque = np.asarray(tgt.run_controller(), dtype=float).copy()
+            intervention_errors.append(
+                float(np.max(np.abs(torque - source_torque)))
+            )
+        tgt.initial_joint = original_target_reference
+        p10, median, p90 = np.percentile(intervention_errors, [10, 50, 90])
+        print(
+            f"OSC_MEMORY_ABLATION n=32 p10={p10:.6e} "
+            f"median={median:.6e} p90={p90:.6e} "
+            f"matched_state={good_error:.6e}"
+        )
+        assert median > 0.05
+        assert p90 > 0.1
+        assert median > 1000 * good_error
         print(
             f"OSC_CAUSAL_HANDSHAKE bad_torque_max={bad_error:.6e} "
             f"good_torque_max={good_error:.6e} "
