@@ -79,6 +79,30 @@ def test_real_online_desired_goal_memory_transport(seed):
         # First state-handshake was done in achieved mode. Now intentionally
         # switch SOURCE to desired mode, making previous-goal memory causal.
         cs.set_goal_update_mode("desired")
+
+        # Align the INITIAL desired goal to the measured pose IN THE
+        # declared input reference frame. Otherwise reset_goal() may leave
+        # a stale coordinate-chart target and confound the history effect.
+        cs.update(force=True)
+        if cs.input_ref_frame == "base":
+            initial_goal_pos = cs.world_to_origin_frame(cs.ref_pos)
+            initial_goal_ori = cs.goal_origin_to_eef_pose()[:3, :3]
+        elif cs.input_ref_frame == "world":
+            initial_goal_pos = cs.ref_pos
+            initial_goal_ori = cs.ref_ori_mat
+        else:
+            raise AssertionError("unsupported reference frame")
+        cs.goal_pos = np.asarray(initial_goal_pos, dtype=float).copy()
+        cs.goal_ori = np.asarray(initial_goal_ori, dtype=float).copy()
+        ct.goal_pos = cs.goal_pos.copy()
+        ct.goal_ori = cs.goal_ori.copy()
+        np.testing.assert_allclose(cs.goal_pos, initial_goal_pos, atol=1e-12)
+        print(
+            "DESIRED_INITIAL_GOAL_ALIGNMENT",
+            cs.input_ref_frame,
+            np.asarray(cs.goal_pos).tolist(),
+            np.asarray(initial_goal_pos).tolist(),
+        )
         rng = np.random.default_rng(seed)
         full_errors=[]
         goal_errors=[]
@@ -119,6 +143,9 @@ def test_real_online_desired_goal_memory_transport(seed):
         )
         assert max(goal_errors) < 1e-6
         assert max(full_errors) < 2e-5
+        # This must arise from accumulated desired-goal memory after
+        # matching the initial target to measured pose, not reset artifacts.
+        assert max(stale_goal_mistakes[1:]) > 1e-3
     finally:
         src.close()
         dst.close()
