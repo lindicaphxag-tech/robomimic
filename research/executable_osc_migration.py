@@ -11,8 +11,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
+import re
 
 import numpy as np
+
+
+class OSCMigrationRollbackError(RuntimeError):
+    """Raised when a failed state transfer cannot be safely undone."""
 
 
 class MigrationOutcome(str, Enum):
@@ -85,7 +90,7 @@ def compile_and_apply_osc_posture_handshake(
     if (
         not isinstance(source_mjcf_sha256, str)
         or not isinstance(target_mjcf_sha256, str)
-        or len(source_mjcf_sha256) != 64
+        or re.fullmatch(r"[0-9a-f]{64}", source_mjcf_sha256) is None
         or source_mjcf_sha256 != target_mjcf_sha256
     ):
         return _reject("source and target do not share a verified MJCF provenance digest")
@@ -124,23 +129,43 @@ def compile_and_apply_osc_posture_handshake(
             if first.shape != second.shape or not np.allclose(first, second, atol=tolerance, rtol=0):
                 return _reject(f"source/target {name} contract differs")
 
-        # The model and control gain checks are necessary but insufficient.
-        # Only synchronize a posture-reference vector. Never silently copy
-        # unknown private controller fields.
+    except (ValueError, AttributeError, TypeError) as exc:
+        return _reject(f"state extraction failed before mutation: {exc}")
+
+    # The model and gain checks are necessary but insufficient.  Only
+    # synchronize the posture reference.  A rejected handshake must not
+    # silently leave a partially mutated controller behind.
+    try:
         target.update_initial_joints(src_initial.copy())
         transferred = _vector(target.initial_joint, "target.initial_joint")
+        if transferred.shape != src_initial.shape:
+            raise ValueError("post-transfer nullspace dimensions differ")
         error = float(np.max(np.abs(src_initial - transferred)))
-        if transferred.shape != src_initial.shape or error > tolerance:
-            # fail-closed: no APPLIED certificate for an incomplete transfer.
-            return _reject("target controller did not retain transferred posture reference")
-        return OSCHandshakeCertificate(
-            outcome=MigrationOutcome.APPLIED,
-            reason="OSC nullspace posture reference synchronized within declared scope",
-            common_model_sha256=source_mjcf_sha256,
-            source_reference_before=tuple(map(float, src_initial)),
-            target_reference_before=tuple(map(float, dst_initial)),
-            target_reference_after=tuple(map(float, transferred)),
-            maximum_reference_residual=error,
-        )
-    except (ValueError, AttributeError, TypeError) as exc:
-        return _reject(f"state extraction or application failed: {exc}")
+        if error > tolerance:
+            raise ValueError("target did not retain transferred posture reference")
+    except Exception as exc:
+        # Controllers are external mutable objects. A failed write can
+        # partially apply; restore the pre-transaction reference and VERIFY.
+        try:
+            target.update_initial_joints(dst_initial.copy())
+            restored = _vector(target.initial_joint, "rollback.initial_joint")
+            if restored.shape != dst_initial.shape or not np.array_equal(restored, dst_initial):
+                raise OSCMigrationRollbackError(
+                    "target initial_joint was not restored exactly"
+                )
+        except Exception as rollback_exc:
+            raise OSCMigrationRollbackError(
+                "controller state transfer failed AND rollback could not be verified; "
+                "target controller must be quarantined from further execution"
+            ) from rollback_exc
+        return _reject(f"controller mutation rolled back after failure: {exc}")
+
+    return OSCHandshakeCertificate(
+        outcome=MigrationOutcome.APPLIED,
+        reason="OSC nullspace posture reference synchronized within declared scope",
+        common_model_sha256=source_mjcf_sha256,
+        source_reference_before=tuple(map(float, src_initial)),
+        target_reference_before=tuple(map(float, dst_initial)),
+        target_reference_after=tuple(map(float, transferred)),
+        maximum_reference_residual=error,
+    )
