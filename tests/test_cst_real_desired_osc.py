@@ -33,7 +33,7 @@ def _make_env(mode):
     c = cfg["body_parts"]["right"]
     c["type"] = "OSC_POSE"
     c["input_type"] = mode
-    c["input_ref_frame"] = "base"
+    c["input_ref_frame"] = "world"
     c["impedance_mode"] = "fixed"
     return suite.make(
         "Lift", robots="Panda", controller_configs=cfg,
