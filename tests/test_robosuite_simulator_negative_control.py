@@ -28,14 +28,34 @@ def _delta_env():
     )
 
 
-def test_identical_controller_instances_baseline_scene_drift():
+@pytest.mark.parametrize("match_physics_model", [False, True])
+def test_identical_controller_instances_baseline_scene_drift(match_physics_model):
     a = _delta_env()
     b = _delta_env()
     try:
         a.reset()
         b.reset()
+        if match_physics_model:
+            # MuJoCo flattened state excludes model geometry, masses and
+            # contact parameters, which are independently randomized by Lift.
+            for name in (
+                "geom_size", "geom_pos", "geom_quat", "geom_friction",
+                "body_pos", "body_quat", "body_mass", "body_inertia",
+                "dof_damping", "dof_frictionloss", "actuator_gainprm",
+                "actuator_biasprm", "actuator_gear",
+            ):
+                source_field = getattr(a.sim.model, name, None)
+                target_field = getattr(b.sim.model, name, None)
+                if source_field is not None and target_field is not None:
+                    x = np.asarray(source_field)
+                    y = np.asarray(target_field)
+                    if x.shape != y.shape:
+                        raise AssertionError("model array shape differs: " + name)
+                    target_field[...] = x
         b.sim.set_state_from_flattened(a.sim.get_state().flatten())
         b.sim.forward()
+        if hasattr(a.sim.data, "qacc_warmstart") and hasattr(b.sim.data, "qacc_warmstart"):
+            b.sim.data.qacc_warmstart[...] = a.sim.data.qacc_warmstart
         ca = a.robots[0].part_controllers["right"]
         cb = b.robots[0].part_controllers["right"]
         cb.update_initial_joints(np.asarray(ca.initial_joint).copy())
@@ -84,6 +104,7 @@ def test_identical_controller_instances_baseline_scene_drift():
         print(
             "IDENTICAL_CONTROLLER_NEG_CONTROL",
             "steps=8",
+            "match_physics_model", match_physics_model,
             "full_qpos_max", max(full_errors),
             "arm_qpos_max", max(arm_errors),
             "ctrl_max", max(ctrl_errors),
