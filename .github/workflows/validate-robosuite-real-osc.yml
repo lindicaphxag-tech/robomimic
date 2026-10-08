@@ -3,7 +3,7 @@ name: Validate real robosuite OSC semantic inverse
 on:
   push:
     branches:
-      - validation/delta-actions-real-osc-20261008
+      - validation/cst-ur5e-iiwa-osc-20261009
   workflow_dispatch:
 
 jobs:
@@ -25,4 +25,4 @@ jobs:
           python -m pip install "robosuite==1.5.2" "mujoco==3.3.0" numpy scipy pytest h5py
           python -c "import mujoco, robosuite; print('MUJOCO', mujoco.__version__, 'ROBOSUITE', robosuite.__version__)"
       - name: Verify real OSC goal and reverse conversion
-        run: python -m pytest -q -s tests/test_robosuite_real_osc_inverse.py tests/test_robosuite_paired_closed_loop.py tests/test_robosuite_hdf5_converter_integration.py tests/test_robosuite_simulator_negative_control.py tests/test_cst_real_osc_handshake.py tests/test_cst_real_osc_multitask.py tests/test_cst_real_desired_osc.py tests/test_cst_desired_physical_causal_ablation.py
+        run: python -m pytest -q -s tests/test_robosuite_real_osc_inverse.py tests/test_robosuite_paired_closed_loop.py tests/test_robosuite_hdf5_converter_integration.py tests/test_robosuite_simulator_negative_control.py tests/test_cst_real_osc_handshake.py tests/test_cst_real_osc_multitask.py tests/test_cst_real_desired_osc.py tests/test_cst_desired_physical_causal_ablation.py tests/test_cst_real_osc_multi_robot.py
