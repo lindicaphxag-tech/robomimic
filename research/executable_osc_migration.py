@@ -96,7 +96,8 @@ def compile_and_apply_osc_posture_handshake(
         return _reject("source and target do not share a verified MJCF provenance digest")
 
     required = (
-        "initial_joint", "kp", "kd", "joint_pos", "joint_vel",
+        "initial_joint", "goal_pos", "goal_ori",
+        "kp", "kd", "joint_pos", "joint_vel",
         "update_initial_joints", "input_type", "input_ref_frame",
         "_goal_update_mode", "impedance_mode",
     )
@@ -118,8 +119,26 @@ def compile_and_apply_osc_posture_handshake(
             return _reject(f"{role} contains unsupported interpolation memory")
 
     try:
-        src_initial = _vector(source.initial_joint, "source.initial_joint")
-        dst_initial = _vector(target.initial_joint, "target.initial_joint")
+        src_initial = _vector(source.initial_joint, "source.initial_joint").copy()
+        dst_initial = _vector(target.initial_joint, "target.initial_joint").copy()
+
+        # robosuite OSC.update_initial_joints() also calls reset_goal(), so
+        # controller-owned target memory MUST be part of the transaction.
+        src_goal_pos = _vector(source.goal_pos, "source.goal_pos").copy()
+        dst_goal_pos = _vector(target.goal_pos, "target.goal_pos").copy()
+        src_goal_ori = np.asarray(source.goal_ori, dtype=float).copy()
+        dst_goal_ori = np.asarray(target.goal_ori, dtype=float).copy()
+        if (
+            src_goal_pos.shape != (3,)
+            or dst_goal_pos.shape != (3,)
+            or src_goal_ori.shape != (3, 3)
+            or dst_goal_ori.shape != (3, 3)
+            or not np.all(np.isfinite(src_goal_ori))
+            or not np.all(np.isfinite(dst_goal_ori))
+        ):
+            return _reject("OSC target pose memory is incomplete or nonfinite")
+        original_mode = target._goal_update_mode
+
         if src_initial.shape != dst_initial.shape:
             return _reject("source and target have different nullspace joint dimensions")
 
@@ -132,37 +151,57 @@ def compile_and_apply_osc_posture_handshake(
     except (ValueError, AttributeError, TypeError) as exc:
         return _reject(f"state extraction failed before mutation: {exc}")
 
-    # The model and gain checks are necessary but insufficient.  Only
-    # synchronize the posture reference.  A rejected handshake must not
-    # silently leave a partially mutated controller behind.
+    # The model and gain checks are necessary but insufficient.  A rejected
+    # handshake must not leave even INDIRECT reset_goal side effects behind.
     try:
         target.update_initial_joints(src_initial.copy())
+        # update_initial_joints resets goal in the real OSC implementation:
+        # explicitly synchronize the controller-owned goal memory as well.
+        target.goal_pos = src_goal_pos.copy()
+        target.goal_ori = src_goal_ori.copy()
+        target._goal_update_mode = "achieved"
+
         transferred = _vector(target.initial_joint, "target.initial_joint")
         if transferred.shape != src_initial.shape:
             raise ValueError("post-transfer nullspace dimensions differ")
         error = float(np.max(np.abs(src_initial - transferred)))
         if error > tolerance:
             raise ValueError("target did not retain transferred posture reference")
+        if (
+            not np.array_equal(np.asarray(target.goal_pos), src_goal_pos)
+            or not np.array_equal(np.asarray(target.goal_ori), src_goal_ori)
+            or target._goal_update_mode != "achieved"
+        ):
+            raise ValueError("target did not retain synchronized OSC goal memory")
     except Exception as exc:
-        # Controllers are external mutable objects. A failed write can
-        # partially apply; restore the pre-transaction reference and VERIFY.
+        # A failed write may partially apply and reset additional state.
+        # Restore and verify *all* mutable fields covered by this contract.
         try:
             target.update_initial_joints(dst_initial.copy())
+            target.goal_pos = dst_goal_pos.copy()
+            target.goal_ori = dst_goal_ori.copy()
+            target._goal_update_mode = original_mode
             restored = _vector(target.initial_joint, "rollback.initial_joint")
-            if restored.shape != dst_initial.shape or not np.array_equal(restored, dst_initial):
+            if (
+                restored.shape != dst_initial.shape
+                or not np.array_equal(restored, dst_initial)
+                or not np.array_equal(np.asarray(target.goal_pos), dst_goal_pos)
+                or not np.array_equal(np.asarray(target.goal_ori), dst_goal_ori)
+                or target._goal_update_mode != original_mode
+            ):
                 raise OSCMigrationRollbackError(
-                    "target initial_joint was not restored exactly"
+                    "controller posture/goal memory was not restored exactly"
                 )
         except Exception as rollback_exc:
             raise OSCMigrationRollbackError(
-                "controller state transfer failed AND rollback could not be verified; "
-                "target controller must be quarantined from further execution"
+                "controller state transfer failed AND full-state rollback could not "
+                "be verified; target controller must be quarantined from further execution"
             ) from rollback_exc
         return _reject(f"controller mutation rolled back after failure: {exc}")
 
     return OSCHandshakeCertificate(
         outcome=MigrationOutcome.APPLIED,
-        reason="OSC nullspace posture reference synchronized within declared scope",
+        reason="OSC nullspace and goal memory synchronized within declared scope",
         common_model_sha256=source_mjcf_sha256,
         source_reference_before=tuple(map(float, src_initial)),
         target_reference_before=tuple(map(float, dst_initial)),
