@@ -118,8 +118,14 @@ def test_real_online_desired_goal_memory_transport(seed):
 
             # Deliberate invalid shortcut: achieved-state baseline ignores
             # controller-owned previous desired target; measure separately.
-            achieved_pos=cs.world_to_origin_frame(cs.ref_pos)
-            achieved_ori=cs.goal_origin_to_eef_pose()[:3,:3]
+            if cs.input_ref_frame == "base":
+                achieved_pos=cs.world_to_origin_frame(cs.ref_pos)
+                achieved_ori=cs.goal_origin_to_eef_pose()[:3,:3]
+            elif cs.input_ref_frame == "world":
+                achieved_pos=cs.ref_pos
+                achieved_ori=cs.ref_ori_mat
+            else:
+                raise AssertionError("unsupported reference frame")
             physical=scale_action(
                 native,cs.input_min,cs.input_max,
                 cs.output_min,cs.output_max,
