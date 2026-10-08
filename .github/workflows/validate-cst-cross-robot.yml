@@ -1,0 +1,35 @@
+name: Validate CST across Sawyer and UR5e native physics
+
+on:
+  push:
+    branches:
+      - validation/cst-cross-robot-osc-20261009
+  workflow_dispatch:
+
+jobs:
+  cross-robot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    env:
+      MUJOCO_GL: osmesa
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU robosuite physics
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6 libosmesa6-dev libgl1 libglx-mesa0
+          python -m pip install --upgrade pip
+          python -m pip install "robosuite==1.5.2" "mujoco==3.3.0" numpy scipy pytest h5py
+      - name: Run cross-robot matched-model physics and fail-closed refusal
+        run: |
+          set -o pipefail
+          python -m pytest -q -s tests/test_cst_real_osc_cross_robot.py 2>&1 | tee cross_robot_osc.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cst-real-sawyer-ur5e-cross-robot
+          path: cross_robot_osc.log
