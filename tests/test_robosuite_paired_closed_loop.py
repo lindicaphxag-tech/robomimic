@@ -45,16 +45,23 @@ def _action(env, arm_action):
     return action
 
 
-def test_two_real_osc_controllers_track_same_physics_under_compiled_actions():
+@pytest.mark.parametrize("model_alignment", ["none", "xml"])
+def test_two_real_osc_controllers_track_same_physics_under_compiled_actions(model_alignment):
     delta_env = _env("delta")
     abs_env = _env("absolute")
     try:
         delta_env.reset()
         abs_env.reset()
+        if model_alignment == "xml":
+            # MJCF alignment eliminates independently sampled object geometry
+            # and mass differences before testing controller migration.
+            abs_env.reset_from_xml_string(delta_env.sim.model.get_xml())
 
         initial_state = delta_env.sim.get_state().flatten()
         abs_env.sim.set_state_from_flattened(initial_state)
         abs_env.sim.forward()
+        if hasattr(delta_env.sim.data, "qacc_warmstart"):
+            abs_env.sim.data.qacc_warmstart[...] = delta_env.sim.data.qacc_warmstart
         np.testing.assert_allclose(
             delta_env.sim.data.qpos,
             abs_env.sim.data.qpos,
@@ -162,7 +169,7 @@ def test_two_real_osc_controllers_track_same_physics_under_compiled_actions():
         max_arm = max(arm_errors)
         max_goal = max(goal_errors)
         print(
-            f"PAIRED_OSC_REAL_ROLLOUT steps=8 "
+            f"PAIRED_OSC_REAL_ROLLOUT steps=8 model_alignment={model_alignment} "
             f"max_qpos={max_qpos:.6e} max_arm={max_arm:.6e} "
             f"max_goal={max_goal:.6e} "
             f"full_qpos_errors={qpos_errors} arm_errors={arm_errors}"
@@ -173,6 +180,9 @@ def test_two_real_osc_controllers_track_same_physics_under_compiled_actions():
         if max_qpos >= 1e-4:
             print("FULL_STATE_UNCERTIFIED: object/other qpos mismatch remains")
         assert max_arm < 1e-4
+        if model_alignment == "xml":
+            # Stronger but still FINITE-HORIZON / SCENE-SPECIFIC claim.
+            assert max_qpos < 1e-5
     finally:
         delta_env.close()
         abs_env.close()
