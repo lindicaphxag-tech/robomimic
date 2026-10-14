@@ -4,6 +4,7 @@ import pytest
 from robomimic.models.base_nets import ResNet18Conv, SpatialMeanPool, SpatialSoftmax
 from robomimic.models.obs_core import (
     VisualCore,
+    ScanCore,
     _registered_backbone_class,
     _registered_pool_class,
 )
@@ -74,3 +75,13 @@ def test_visualcore_fails_closed_on_pool_expression_after_valid_backbone():
             pool_class="SpatialSoftmax.__class__",
             feature_dimension=None,
         )
+
+
+def test_scan_core_keeps_registered_spatial_pooling():
+    model = ScanCore(input_shape=(4, 128), pool_class="SpatialMeanPool", feature_dimension=None)
+    assert isinstance(model.pool, SpatialMeanPool)
+
+
+def test_scan_core_rejects_checkpoint_name_expression():
+    with pytest.raises(ValueError, match="Unknown or invalid registered pool"):
+        ScanCore(input_shape=(4, 128), pool_class="SpatialMeanPool.__class__", feature_dimension=None)
