@@ -17,8 +17,32 @@ import robomimic.utils.tensor_utils as TensorUtils
 import robomimic.utils.obs_utils as ObsUtils
 from robomimic.utils.python_utils import extract_class_init_kwargs_from_dict
 
-# NOTE: this is required for the backbone classes to be found by the `eval` call in the core networks
+# Import unsqueeze and remaining trusted helpers from the existing base_nets API.
+# Model class resolution below deliberately never evaluates checkpoint strings.
 from robomimic.models.base_nets import *
+
+
+def _registered_backbone_class(class_name):
+    """Resolve a trusted subclass by its registered *name*, not by eval()."""
+    if not isinstance(class_name, str):
+        raise TypeError("backbone_class must be a registered class name")
+    cls = ObsUtils.OBS_ENCODER_BACKBONES.get(class_name)
+    if not isinstance(cls, type) or not issubclass(cls, BaseNets.ConvBase):
+        raise ValueError("Unknown or invalid registered backbone class: {!r}".format(class_name))
+    return cls
+
+
+def _registered_pool_class(class_name):
+    """Resolve built-in poolers and trusted explicitly registered ConvBase pools."""
+    if not isinstance(class_name, str):
+        raise TypeError("pool_class must be a registered class name")
+    cls = {"SpatialSoftmax": BaseNets.SpatialSoftmax,
+           "SpatialMeanPool": BaseNets.SpatialMeanPool}.get(class_name)
+    if cls is None:
+        cls = ObsUtils.OBS_ENCODER_BACKBONES.get(class_name)
+    if not isinstance(cls, type) or not issubclass(cls, BaseNets.Module):
+        raise ValueError("Unknown or invalid registered pool class: {!r}".format(class_name))
+    return cls
 from robomimic.utils.vis_utils import visualize_image_randomizer
 from robomimic.macros import VISUALIZE_RANDOMIZER
 
@@ -98,12 +122,12 @@ class VisualCore(EncoderCore, BaseNets.ConvBase):
 
         # extract only relevant kwargs for this specific backbone
         backbone_kwargs = extract_class_init_kwargs_from_dict(
-                cls = ObsUtils.OBS_ENCODER_BACKBONES[backbone_class],
+                cls = _registered_backbone_class(backbone_class),
                 dic=backbone_kwargs, copy=True)
 
         # visual backbone
         assert isinstance(backbone_class, str)
-        self.backbone = eval(backbone_class)(**backbone_kwargs)
+        self.backbone = _registered_backbone_class(backbone_class)(**backbone_kwargs)
 
         assert isinstance(self.backbone, BaseNets.ConvBase)
 
@@ -118,8 +142,9 @@ class VisualCore(EncoderCore, BaseNets.ConvBase):
                 pool_kwargs = dict()
             # extract only relevant kwargs for this specific backbone
             pool_kwargs["input_shape"] = feat_shape
-            pool_kwargs = extract_class_init_kwargs_from_dict(cls=eval(pool_class), dic=pool_kwargs, copy=True)
-            self.pool = eval(pool_class)(**pool_kwargs)
+            pool_cls = _registered_pool_class(pool_class)
+            pool_kwargs = extract_class_init_kwargs_from_dict(cls=pool_cls, dic=pool_kwargs, copy=True)
+            self.pool = pool_cls(**pool_kwargs)
             assert isinstance(self.pool, BaseNets.Module)
 
             feat_shape = self.pool.output_shape(feat_shape)
@@ -298,7 +323,7 @@ class ScanCore(EncoderCore, BaseNets.ConvBase):
             # Get output shape
             feat_shape = self.unsqueeze.output_shape(feat_shape)
             # Create pooling network
-            self.pool = eval(pool_class)(input_shape=feat_shape, **pool_kwargs)
+            self.pool = _registered_pool_class(pool_class)(input_shape=feat_shape, **(pool_kwargs or {}))
             net_list.append(self.pool)
             feat_shape = self.pool.output_shape(feat_shape)
         else:
