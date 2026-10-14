@@ -323,7 +323,7 @@ class ScanCore(EncoderCore, BaseNets.ConvBase):
             # Get output shape
             feat_shape = self.unsqueeze.output_shape(feat_shape)
             # Create pooling network
-            self.pool = _registered_pool_class(pool_class)(input_shape=feat_shape, **pool_kwargs)
+            self.pool = _registered_pool_class(pool_class)(input_shape=feat_shape, **(pool_kwargs or {}))
             net_list.append(self.pool)
             feat_shape = self.pool.output_shape(feat_shape)
         else:
