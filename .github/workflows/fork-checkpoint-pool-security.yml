@@ -1,0 +1,23 @@
+name: Verify checkpoint-config model class allowlist
+on:
+  push:
+    branches: [fix/registered-pool-class-checkpoint-safe-20261014]
+    paths:
+      - robomimic/models/obs_core.py
+      - tests/test_registered_pool_checkpoint_security.py
+      - .github/workflows/fork-checkpoint-pool-security.yml
+  workflow_dispatch:
+permissions: { contents: read }
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: |
+          python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e . --no-deps
+          python -m pip install numpy matplotlib pytest h5py psutil termcolor
+      - run: python -m pytest -q tests/test_registered_pool_checkpoint_security.py
