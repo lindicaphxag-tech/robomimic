@@ -78,6 +78,15 @@ def extract_action_dict(dataset, add_absolute_actions=True):
                 if num_robots is not None and count != num_robots:
                     raise ValueError(f"Relative/absolute action arm counts disagree in {demo.name}")
                 num_robots = count
+                # The delta-to-absolute converter changes Cartesian pose
+                # targets but copies gripper and optional mobile-base controls
+                # unchanged. Reject contradictory shared controls rather than
+                # letting the absolute representation silently overwrite them.
+                for key, value in fields.items():
+                    if key in fields_to_write and not np.array_equal(fields_to_write[key], value):
+                        raise ValueError(
+                            f"Relative/absolute actions disagree on shared control {key!r} in {demo.name}"
+                        )
                 fields_to_write.update(fields)
             action_dict_group = demo.require_group("action_dict")
             for key, data in fields_to_write.items():
