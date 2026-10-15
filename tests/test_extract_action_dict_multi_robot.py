@@ -96,3 +96,5 @@ def test_malformed_rank_and_mismatched_absolute_arm_count(tmp_path):
         demo.create_dataset("actions_abs", data=_actions(4, 1, 7))
     with pytest.raises(ValueError, match="arm counts disagree"):
         extract_action_dict(str(path), add_absolute_actions=True)
+    with h5py.File(path, "r") as f:
+        assert "action_dict" not in f["data/demo_0"]
