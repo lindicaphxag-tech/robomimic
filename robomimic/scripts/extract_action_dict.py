@@ -67,8 +67,10 @@ def extract_action_dict(dataset, add_absolute_actions=True):
             specs.append(("actions_abs", True))
 
         for demo in f["data"].values():
-            action_dict_group = demo.require_group("action_dict")
+            # Validate both representations before mutating the HDF5 group:
+            # malformed absolute actions must not leave half-converted output.
             num_robots = None
+            fields_to_write = {}
             for action_key, is_absolute in specs:
                 if action_key not in demo:
                     raise KeyError(f"Missing {action_key} in demonstration {demo.name}")
@@ -76,10 +78,12 @@ def extract_action_dict(dataset, add_absolute_actions=True):
                 if num_robots is not None and count != num_robots:
                     raise ValueError(f"Relative/absolute action arm counts disagree in {demo.name}")
                 num_robots = count
-                for key, data in fields.items():
-                    if key in action_dict_group:
-                        del action_dict_group[key]
-                    action_dict_group.create_dataset(key, data=data)
+                fields_to_write.update(fields)
+            action_dict_group = demo.require_group("action_dict")
+            for key, data in fields_to_write.items():
+                if key in action_dict_group:
+                    del action_dict_group[key]
+                action_dict_group.create_dataset(key, data=data)
             if num_robots > 1:
                 # Remove stale legacy fields from datasets previously processed
                 # by the single-arm-only extractor. They represent just arm 0.
