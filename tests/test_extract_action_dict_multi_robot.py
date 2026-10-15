@@ -23,11 +23,16 @@ def _actions(steps, arms, width):
 def test_hdf5_action_extraction_preserves_every_arm(tmp_path, num_robots, per_arm_width, include_abs):
     path = tmp_path / "robot-actions.hdf5"
     original = _actions(5, num_robots, per_arm_width)
+    absolute = original.reshape(5, num_robots, per_arm_width).copy()
+    # Only pose goals change; gripper and base-mode controls are invariant
+    # under robomimic's delta-to-absolute conversion.
+    absolute[:, :, :6] += 0.25
+    absolute = absolute.reshape(original.shape)
     with h5py.File(path, "w") as f:
         demo = f.create_group("data").create_group("demo_0")
         demo.create_dataset("actions", data=original)
         if include_abs:
-            demo.create_dataset("actions_abs", data=original + 0.25)
+            demo.create_dataset("actions_abs", data=absolute)
 
     extract_action_dict(str(path), add_absolute_actions=include_abs)
     with h5py.File(path, "r") as f:
@@ -35,7 +40,7 @@ def test_hdf5_action_extraction_preserves_every_arm(tmp_path, num_robots, per_ar
         assert group.attrs["num_robots"] == num_robots
         for robot_idx in range(num_robots):
             owner = f"robot{robot_idx}_" if num_robots > 1 else ""
-            for name, data in (("rel_", original), ("abs_", original + 0.25)):
+            for name, data in (("rel_", original), ("abs_", absolute)):
                 if name == "abs_" and not include_abs:
                     continue
                 arm = data.reshape(5, num_robots, per_arm_width)[:, robot_idx]
@@ -95,6 +100,24 @@ def test_malformed_rank_and_mismatched_absolute_arm_count(tmp_path):
         demo.create_dataset("actions", data=_actions(4, 2, 7))
         demo.create_dataset("actions_abs", data=_actions(4, 1, 7))
     with pytest.raises(ValueError, match="arm counts disagree"):
+        extract_action_dict(str(path), add_absolute_actions=True)
+    with h5py.File(path, "r") as f:
+        assert "action_dict" not in f["data/demo_0"]
+
+
+@pytest.mark.parametrize("num_robots,per_arm_width", [(1, 7), (1, 8), (2, 7), (2, 8)])
+def test_inconsistent_absolute_shared_controls_are_rejected_without_writes(
+    tmp_path, num_robots, per_arm_width
+):
+    path = tmp_path / "inconsistent-shared-controls.hdf5"
+    original = _actions(3, num_robots, per_arm_width)
+    mismatched = original.reshape(3, num_robots, per_arm_width).copy()
+    mismatched[:, -1, 6] += 0.5
+    with h5py.File(path, "w") as f:
+        demo = f.create_group("data").create_group("demo_0")
+        demo.create_dataset("actions", data=original)
+        demo.create_dataset("actions_abs", data=mismatched.reshape(original.shape))
+    with pytest.raises(ValueError, match="shared control"):
         extract_action_dict(str(path), add_absolute_actions=True)
     with h5py.File(path, "r") as f:
         assert "action_dict" not in f["data/demo_0"]
