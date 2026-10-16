@@ -578,11 +578,31 @@ class CropRandomizer(Randomizer):
 
     def _forward_in_eval(self, inputs):
         """
-        Do center crops during eval
+        Do center crops during eval.
+        If position encoding is enabled, append the source-image coordinates for
+        the selected crop, matching the training-time random-crop path.
         """
         assert len(inputs.shape) >= 3 # must have at least (C, H, W) dimensions
         inputs = inputs.permute(*range(inputs.dim()-3), inputs.dim()-2, inputs.dim()-1, inputs.dim()-3)
         out = ObsUtils.center_crop(inputs, self.crop_height, self.crop_width)
+
+        if self.pos_enc:
+            # sample_random_image_crops encodes source coordinates as [y/h, x/w]
+            # before cropping. Reconstruct the same deterministic center-crop
+            # coordinates here so train and eval have identical channel contracts.
+            h, w = inputs.shape[-3:-1]
+            crop_h0 = int((h - self.crop_height) / 2)
+            crop_w0 = int((w - self.crop_width) / 2)
+            device = inputs.device
+            dtype = inputs.dtype
+            pos_y = torch.arange(crop_h0, crop_h0 + self.crop_height, device=device, dtype=torch.float32) / float(h)
+            pos_x = torch.arange(crop_w0, crop_w0 + self.crop_width, device=device, dtype=torch.float32) / float(w)
+            pos_y, pos_x = torch.meshgrid(pos_y, pos_x, indexing='ij')
+            position_enc = torch.stack((pos_y, pos_x), dim=0).to(dtype=dtype)
+            leading_shape = out.shape[:-3]
+            position_enc = position_enc[(None,) * len(leading_shape)].expand(*leading_shape, -1, -1, -1)
+            out = torch.cat((out, position_enc), dim=-3)
+
         out = out.permute(*range(out.dim()-3), out.dim()-1, out.dim()-3, out.dim()-2)
         return out
 
